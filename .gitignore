@@ -1,0 +1,11 @@
+# Ignore everything
+*
+
+# Allow app.py and doods.png
+!app.py
+!doods.png
+
+# Ensure Git checks for case sensitivity
+!*.PNG
+
+script.py
