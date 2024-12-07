@@ -6,11 +6,11 @@ from datetime import datetime
 
 st.set_page_config(page_title="BSFL Experiment Dashboard", layout="wide")
 
-# Display Company Logo (ensure doods.png is in the same directory)
+# Display Company Logo (ensure doods.PNG is in the same directory)
 try:
-    st.image("doods.png", width=150)
+    st.image("doods.PNG", width=150)
 except FileNotFoundError:
-    st.warning("Logo file 'doods.png' not found. Please ensure it is in the same directory.")
+    st.warning("Logo file 'doods.PNG' not found. Please ensure it is in the same directory.")
 
 st.title("BSFL Poultry Feed Experiment Dashboard")
 
