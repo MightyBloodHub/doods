@@ -7,7 +7,11 @@ from datetime import datetime
 st.set_page_config(page_title="BSFL Experiment Dashboard", layout="wide")
 
 # Display Company Logo (ensure doods.png is in the same directory)
-st.image("doods.png", width=150)
+try:
+    st.image("doods.png", width=150)
+except FileNotFoundError:
+    st.warning("Logo file 'doods.png' not found. Please ensure it is in the same directory.")
+
 st.title("BSFL Poultry Feed Experiment Dashboard")
 
 uploaded_file = st.file_uploader("Upload the Excel file:", type=["xlsx"])
@@ -41,16 +45,20 @@ if uploaded_file is not None:
     protocol_df = load_sheet("Protocol and Adjustments")
 
     # Compute Total Consumed (kg) in Python instead of relying on Excel formulas
-    # We assume columns "Amount Offered (kg)" and "Amount Refused (kg)" exist and are numeric
+    # Remove the original "Total Consumed (kg) [=Offered - Refused]" column if it exists
     if not feed_df.empty:
         if "Amount Offered (kg)" in feed_df.columns and "Amount Refused (kg)" in feed_df.columns:
+            # Convert to numeric
             feed_df["Amount Offered (kg)"] = pd.to_numeric(feed_df["Amount Offered (kg)"], errors='coerce')
             feed_df["Amount Refused (kg)"] = pd.to_numeric(feed_df["Amount Refused (kg)"], errors='coerce')
-
-            # Compute total consumed ourselves
+            # Compute Total Consumed
             feed_df["Total Consumed (kg)"] = feed_df["Amount Offered (kg)"] - feed_df["Amount Refused (kg)"]
+            # Drop the original formula column if it exists
+            original_col = "Total Consumed (kg) [=Offered - Refused]"
+            if original_col in feed_df.columns:
+                feed_df = feed_df.drop(columns=[original_col])
         else:
-            st.warning("Feed data missing 'Amount Offered (kg)' or 'Amount Refused (kg)' columns.")
+            st.warning("Feed Consumption sheet missing 'Amount Offered (kg)' or 'Amount Refused (kg)' columns.")
     else:
         st.info("Feed Consumption sheet is empty or not found.")
 
@@ -63,8 +71,11 @@ if uploaded_file is not None:
         if "Unit Cost (KWD/ton)" in cost_df.columns and "Quantity Purchased (kg)" in cost_df.columns:
             cost_df["Unit Cost (KWD/ton)"] = pd.to_numeric(cost_df["Unit Cost (KWD/ton)"], errors='coerce')
             cost_df["Quantity Purchased (kg)"] = pd.to_numeric(cost_df["Quantity Purchased (kg)"], errors='coerce')
-            cost_df["Computed Total Cost"] = (cost_df["Unit Cost (KWD/ton)"]/1000)*cost_df["Quantity Purchased (kg)"]
+            cost_df["Computed Total Cost (KWD)"] = (cost_df["Unit Cost (KWD/ton)"]/1000) * cost_df["Quantity Purchased (kg)"]
+        else:
+            st.warning("Cost and Inventory sheet missing 'Unit Cost (KWD/ton)' or 'Quantity Purchased (kg)' columns.")
 
+    # Store DataFrames in a dictionary for easier referencing and editing
     data_sheets = {
         "Instructions": instructions_df,
         "Feed Consumption": feed_df,
@@ -93,23 +104,35 @@ if uploaded_file is not None:
         if not feed_df.empty and "Total Consumed (kg)" in feed_df.columns:
             total_feed_consumed = feed_df["Total Consumed (kg)"].sum(skipna=True)
             st.metric("Total Feed Consumed (all groups)", f"{total_feed_consumed:.2f} kg")
+        else:
+            st.metric("Total Feed Consumed (all groups)", "No data available")
 
         # Weight Metrics
         if not weight_df.empty and "Weight (g)" in weight_df.columns:
             avg_final_weight = weight_df["Weight (g)"].mean(skipna=True)
             if pd.notnull(avg_final_weight):
                 st.metric("Average Bird Weight (overall)", f"{avg_final_weight:.2f} g")
+            else:
+                st.metric("Average Bird Weight (overall)", "No data available")
+        else:
+            st.metric("Average Bird Weight (overall)", "No data available")
 
         # Health Metrics
         if not health_df.empty and "Observation Type (Illness/Mortality/Behavior)" in health_df.columns:
             mortalities = health_df[health_df["Observation Type (Illness/Mortality/Behavior)"] == "Mortality"]
             st.metric("Total Mortalities Recorded", f"{len(mortalities)}")
+        else:
+            st.metric("Total Mortalities Recorded", "No data available")
 
         # Cost Metrics
-        if not cost_df.empty and "Computed Total Cost" in cost_df.columns:
-            total_cost = cost_df["Computed Total Cost"].sum(skipna=True)
+        if not cost_df.empty and "Computed Total Cost (KWD)" in cost_df.columns:
+            total_cost = cost_df["Computed Total Cost (KWD)"].sum(skipna=True)
             if pd.notnull(total_cost):
                 st.metric("Total Cost Recorded", f"{total_cost:.2f} KWD")
+            else:
+                st.metric("Total Cost Recorded", "No data available")
+        else:
+            st.metric("Total Cost Recorded", "No data available")
 
     elif page == "Feed Consumption":
         st.header("Feed Consumption")
@@ -133,7 +156,7 @@ if uploaded_file is not None:
                     group_data = feed_df.copy()
 
                 st.subheader("Raw Data")
-                st.dataframe(group_data, height=300)
+                st.dataframe(group_data.drop(columns=["Date (YYYY-MM-DD)"] if "Date (YYYY-MM-DD)" in group_data.columns else []), height=300)
 
                 # Use our computed "Total Consumed (kg)" column for charts
                 if "Total Consumed (kg)" in group_data.columns and "Date" in group_data.columns:
@@ -157,7 +180,7 @@ if uploaded_file is not None:
                 weight_df["Date"] = pd.NaT
 
             st.subheader("Raw Data")
-            st.dataframe(weight_df, height=300)
+            st.dataframe(weight_df.drop(columns=["Date (YYYY-MM-DD)"] if "Date (YYYY-MM-DD)" in weight_df.columns else []), height=300)
 
             if "Group" in weight_df.columns and "Weight (g)" in weight_df.columns:
                 groups = weight_df["Group"].dropna().unique()
@@ -176,6 +199,8 @@ if uploaded_file is not None:
                     fig = px.line(avg_over_time, x="Date", y="Weight (g)", 
                                   title=f"Average Weight Over Time - {selected_group}", markers=True)
                     st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.write("Necessary columns missing in weight data.")
 
     elif page == "Health Observations":
         st.header("Health Observations")
@@ -189,7 +214,7 @@ if uploaded_file is not None:
                 health_df["Date"] = pd.NaT
 
             st.subheader("Raw Data")
-            st.dataframe(health_df, height=300)
+            st.dataframe(health_df.drop(columns=["Date (YYYY-MM-DD)"] if "Date (YYYY-MM-DD)" in health_df.columns else []), height=300)
 
             obs_type_col = "Observation Type (Illness/Mortality/Behavior)"
             if obs_type_col in health_df.columns:
@@ -197,6 +222,8 @@ if uploaded_file is not None:
                 event_counts.columns = ["Type", "Count"]
                 fig = px.bar(event_counts, x="Type", y="Count", title="Health Events by Type")
                 st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.write("Observation Type column missing in health data.")
 
     elif page == "Cost and Inventory":
         st.header("Cost and Inventory")
@@ -204,13 +231,15 @@ if uploaded_file is not None:
             st.write("No cost data available.")
         else:
             st.subheader("Raw Data")
-            st.dataframe(cost_df, height=300)
+            st.dataframe(cost_df.drop(columns=["Computed Total Cost (KWD)"] if "Computed Total Cost (KWD)" in cost_df.columns else []), height=300)
 
-            if "Type (Soy/BSFL/Other)" in cost_df.columns and "Computed Total Cost" in cost_df.columns:
-                cost_by_type = cost_df.groupby("Type (Soy/BSFL/Other)")["Computed Total Cost"].sum().reset_index()
-                fig = px.pie(cost_by_type, names="Type (Soy/BSFL/Other)", values="Computed Total Cost",
+            if "Type (Soy/BSFL/Other)" in cost_df.columns and "Computed Total Cost (KWD)" in cost_df.columns:
+                cost_by_type = cost_df.groupby("Type (Soy/BSFL/Other)")["Computed Total Cost (KWD)"].sum().reset_index()
+                fig = px.pie(cost_by_type, names="Type (Soy/BSFL/Other)", values="Computed Total Cost (KWD)",
                              title="Cost Distribution by Ingredient Type")
                 st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.write("Necessary columns missing in cost data.")
 
     elif page == "Protocol and Adjustments":
         st.header("Protocol and Adjustments")
@@ -225,6 +254,8 @@ if uploaded_file is not None:
                 status_counts.columns = ["Status", "Count"]
                 fig = px.bar(status_counts, x="Status", y="Count", title="Proposed Changes Approval Status")
                 st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.write("Approval Status column missing in protocol data.")
 
     elif page == "Data Editor & Export":
         st.header("Data Editor & Export")
@@ -234,6 +265,7 @@ if uploaded_file is not None:
         if editable_sheet not in data_sheets or data_sheets[editable_sheet].empty:
             st.write("No data available for this sheet.")
         else:
+            # Create a copy to edit
             edited_df = st.data_editor(data_sheets[editable_sheet].copy(), key=f"editor_{editable_sheet}", num_rows="dynamic")
 
             st.write("Modify the data above as needed. Then click 'Save Changes to Memory' to update the in-memory data.")
@@ -244,21 +276,22 @@ if uploaded_file is not None:
             if st.button("Export Updated Workbook"):
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    # Save instructions as is
+                    # Save Instructions as is (without headers)
                     if not instructions_df.empty:
                         instructions_df.to_excel(writer, sheet_name="Instructions", index=False, header=False)
-                    # For other sheets, add a dummy instruction row
+                    # Save other sheets with computed columns
                     for sname, df in data_sheets.items():
                         if sname == "Instructions":
                             continue
                         if not df.empty:
+                            # Reinsert a placeholder instructions row
                             headers = df.columns.tolist()
                             instruction_row = ["(Instructions row omitted)"] + [""]*(len(headers)-1)
                             combined_df = pd.concat([pd.DataFrame([instruction_row], columns=headers), df], ignore_index=True)
                             combined_df.to_excel(writer, sheet_name=sname, index=False)
                         else:
                             pd.DataFrame().to_excel(writer, sheet_name=sname)
-
+                # Provide download
                 st.download_button(
                     label="Download Updated Excel",
                     data=output.getvalue(),
