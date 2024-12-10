@@ -1,303 +1,309 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import io
-from datetime import datetime
+import os
 
-st.set_page_config(page_title="BSFL Experiment Dashboard", layout="wide")
+# Set the page configuration for a wide layout and appropriate title
+st.set_page_config(page_title="BSFL Poultry Feed Dashboard", layout="wide")
 
-# Display Company Logo (ensure doods.png is in the same directory)
-try:
-    st.image("doods.png", width=150)
-except FileNotFoundError:
-    st.warning("Logo file 'doods.png' not found. Please ensure it is in the same directory.")
-
+# Display the Doodz logo at the top
+st.image("doods.png", width=150)
 st.title("BSFL Poultry Feed Experiment Dashboard")
 
-uploaded_file = st.file_uploader("Upload the Excel file:", type=["xlsx"])
-if uploaded_file is not None:
-    xls = pd.ExcelFile(uploaded_file)
-    sheet_names = xls.sheet_names
+# Preload the Excel file by default
+excel_file = "BSFL_Experiment_Full_Dummy_Data.xlsx"
+if not os.path.exists(excel_file):
+    st.error(f"'{excel_file}' file not found. Please make sure it is in the same directory.")
+    st.stop()
 
-    expected_sheets = [
-        "Instructions", 
-        "Feed Consumption", 
-        "Weight Measurements", 
-        "Health Observations", 
-        "Cost and Inventory", 
-        "Protocol and Adjustments"
-    ]
+xls = pd.ExcelFile(excel_file)
+sheet_names = xls.sheet_names
 
-    def load_sheet(sheet_name):
-        if sheet_name not in sheet_names:
-            return pd.DataFrame()
-        df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=0)
-        # Drop the instruction row (second row) for all sheets except Instructions
-        if sheet_name != "Instructions" and not df.empty:
-            df = df.iloc[1:].reset_index(drop=True)
-        return df
+def load_sheet(name):
+    return pd.read_excel(excel_file, sheet_name=name) if name in sheet_names else pd.DataFrame()
 
-    instructions_df = load_sheet("Instructions")
-    feed_df = load_sheet("Feed Consumption")
-    weight_df = load_sheet("Weight Measurements")
-    health_df = load_sheet("Health Observations")
-    cost_df = load_sheet("Cost and Inventory")
-    protocol_df = load_sheet("Protocol and Adjustments")
+# Load all relevant sheets into DataFrames
+feed_df = load_sheet("Feed Consumption")
+weight_df = load_sheet("Weight Measurements")
+health_df = load_sheet("Health Observations")
+cost_df = load_sheet("Cost and Inventory")
+protocol_df = load_sheet("Protocol and Adjustments")
 
-    # Compute Total Consumed (kg) in Python instead of relying on Excel formulas
-    # Remove the original "Total Consumed (kg) [=Offered - Refused]" column if it exists
-    if not feed_df.empty:
-        if "Amount Offered (kg)" in feed_df.columns and "Amount Refused (kg)" in feed_df.columns:
-            # Convert to numeric
-            feed_df["Amount Offered (kg)"] = pd.to_numeric(feed_df["Amount Offered (kg)"], errors='coerce')
-            feed_df["Amount Refused (kg)"] = pd.to_numeric(feed_df["Amount Refused (kg)"], errors='coerce')
-            # Compute Total Consumed
-            feed_df["Total Consumed (kg)"] = feed_df["Amount Offered (kg)"] - feed_df["Amount Refused (kg)"]
-            # Drop the original formula column if it exists
-            original_col = "Total Consumed (kg) [=Offered - Refused]"
-            if original_col in feed_df.columns:
-                feed_df = feed_df.drop(columns=[original_col])
-        else:
-            st.warning("Feed Consumption sheet missing 'Amount Offered (kg)' or 'Amount Refused (kg)' columns.")
-    else:
-        st.info("Feed Consumption sheet is empty or not found.")
+# Sidebar navigation
+st.sidebar.title("Navigation")
+page = st.sidebar.radio(
+    "Go to",
+    [
+        "Overview",
+        "Feed Consumption",
+        "Weight Measurements",
+        "Health Observations",
+        "Cost and Inventory",
+        "Protocol & Adjustments",
+        "Company Structure",
+    ],
+)
 
-    # Convert Weight (g) to numeric
+# --- Overview Page ---
+if page == "Overview":
+    st.header("Overview")
+    st.write(
+        "This dashboard provides insights into the BSFL poultry feed experiment data. "
+        "The Excel file only contains raw data; all computations and visualizations are handled by this software."
+    )
+
+    st.subheader("Key Metrics")
+    # Basic Feed Consumption Metric
+    if (
+        not feed_df.empty
+        and "Feed Offered (g)" in feed_df.columns
+        and "Feed Refused (g)" in feed_df.columns
+    ):
+        feed_df["Feed Offered (g)"] = pd.to_numeric(feed_df["Feed Offered (g)"], errors="coerce")
+        feed_df["Feed Refused (g)"] = pd.to_numeric(feed_df["Feed Refused (g)"], errors="coerce")
+        feed_df["Consumed (g)"] = feed_df["Feed Offered (g)"] - feed_df["Feed Refused (g)"]
+        total_consumed = feed_df["Consumed (g)"].sum()
+        st.metric("Total Feed Consumed (all groups)", f"{total_consumed:.2f} g")
+
+    # Basic Weight Metric
     if not weight_df.empty and "Weight (g)" in weight_df.columns:
-        weight_df["Weight (g)"] = pd.to_numeric(weight_df["Weight (g)"], errors='coerce')
+        weight_df["Weight (g)"] = pd.to_numeric(weight_df["Weight (g)"], errors="coerce")
+        avg_weight = weight_df["Weight (g)"].mean()
+        st.metric("Average Bird Weight (overall)", f"{avg_weight:.2f} g")
 
-    # Compute total cost if columns exist
-    if not cost_df.empty:
-        if "Unit Cost (KWD/ton)" in cost_df.columns and "Quantity Purchased (kg)" in cost_df.columns:
-            cost_df["Unit Cost (KWD/ton)"] = pd.to_numeric(cost_df["Unit Cost (KWD/ton)"], errors='coerce')
-            cost_df["Quantity Purchased (kg)"] = pd.to_numeric(cost_df["Quantity Purchased (kg)"], errors='coerce')
-            cost_df["Computed Total Cost (KWD)"] = (cost_df["Unit Cost (KWD/ton)"]/1000) * cost_df["Quantity Purchased (kg)"]
-        else:
-            st.warning("Cost and Inventory sheet missing 'Unit Cost (KWD/ton)' or 'Quantity Purchased (kg)' columns.")
+    # Mortality Metric
+    if not health_df.empty and "Observation Type" in health_df.columns:
+        mortalities = health_df[health_df["Observation Type"] == "Mortality"]
+        st.metric("Total Mortalities Recorded", f"{len(mortalities)}")
 
-    # Store DataFrames in a dictionary for easier referencing and editing
-    data_sheets = {
-        "Instructions": instructions_df,
-        "Feed Consumption": feed_df,
-        "Weight Measurements": weight_df,
-        "Health Observations": health_df,
-        "Cost and Inventory": cost_df,
-        "Protocol and Adjustments": protocol_df
+# --- Feed Consumption Page ---
+elif page == "Feed Consumption":
+    st.header("Feed Consumption Data")
+    if feed_df.empty:
+        st.write("No feed consumption data available.")
+    else:
+        st.subheader("Raw Data")
+        st.dataframe(feed_df, height=300)
+
+        if (
+            "Feed Offered (g)" in feed_df.columns
+            and "Feed Refused (g)" in feed_df.columns
+            and "Date" in feed_df.columns
+            and "Group" in feed_df.columns
+        ):
+            feed_df["Feed Offered (g)"] = pd.to_numeric(feed_df["Feed Offered (g)"], errors="coerce")
+            feed_df["Feed Refused (g)"] = pd.to_numeric(feed_df["Feed Refused (g)"], errors="coerce")
+            feed_df["Consumed (g)"] = feed_df["Feed Offered (g)"] - feed_df["Feed Refused (g)"]
+
+            consumed_summary = feed_df.groupby(["Date", "Group"])["Consumed (g)"].sum().reset_index()
+            fig = px.line(
+                consumed_summary,
+                x="Date",
+                y="Consumed (g)",
+                color="Group",
+                title="Feed Consumed Over Time",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+# --- Weight Measurements Page ---
+elif page == "Weight Measurements":
+    st.header("Weight Measurements")
+    if weight_df.empty:
+        st.write("No weight data available.")
+    else:
+        st.subheader("Raw Data")
+        st.dataframe(weight_df, height=300)
+
+        if "Weight (g)" in weight_df.columns and "Date" in weight_df.columns and "Group" in weight_df.columns:
+            weight_df["Weight (g)"] = pd.to_numeric(weight_df["Weight (g)"], errors="coerce")
+            avg_over_time = weight_df.groupby(["Date", "Group"])["Weight (g)"].mean().reset_index()
+            fig = px.line(
+                avg_over_time,
+                x="Date",
+                y="Weight (g)",
+                color="Group",
+                title="Average Weight Over Time",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+# --- Health Observations Page ---
+elif page == "Health Observations":
+    st.header("Health Observations")
+    if health_df.empty:
+        st.write("No health observations data available.")
+    else:
+        st.subheader("Raw Data")
+        st.dataframe(health_df, height=300)
+
+        if "Observation Type" in health_df.columns and "Group" in health_df.columns:
+            # Show difference between groups
+            group_event_counts = (
+                health_df.groupby(["Observation Type", "Group"])["Bird ID"]
+                .count()
+                .reset_index()
+            )
+            group_event_counts.columns = ["Observation Type", "Group", "Count"]
+
+            # Create a bar chart to show differences by Observation Type and Group
+            fig = px.bar(
+                group_event_counts,
+                x="Observation Type",
+                y="Count",
+                color="Group",
+                barmode="group",
+                title="Health Events by Type and Group",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+# --- Cost and Inventory Page ---
+elif page == "Cost and Inventory":
+    st.header("Cost and Inventory")
+    if cost_df.empty:
+        st.write("No cost data available.")
+    else:
+        st.subheader("Raw Data")
+        st.dataframe(cost_df, height=300)
+
+        if all(col in cost_df.columns for col in ["Unit Cost (KWD/ton)", "Quantity (kg)"]):
+            cost_df["Unit Cost (KWD/ton)"] = pd.to_numeric(cost_df["Unit Cost (KWD/ton)"], errors="coerce")
+            cost_df["Quantity (kg)"] = pd.to_numeric(cost_df["Quantity (kg)"], errors="coerce")
+            cost_df["Total Cost (KWD)"] = (cost_df["Unit Cost (KWD/ton)"] / 1000) * cost_df["Quantity (kg)"]
+            cost_by_item = cost_df.groupby("Item/Ingredient")["Total Cost (KWD)"].sum().reset_index()
+
+            fig = px.pie(
+                cost_by_item,
+                names="Item/Ingredient",
+                values="Total Cost (KWD)",
+                title="Cost Distribution by Ingredient",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+# --- Protocol & Adjustments Page ---
+elif page == "Protocol & Adjustments":
+    st.header("Protocol and Adjustments")
+    if protocol_df.empty:
+        st.write("No protocol data available.")
+    else:
+        st.subheader("Raw Data")
+        st.dataframe(protocol_df, height=300)
+
+# --- Company Structure Page ---
+elif page == "Company Structure":
+    st.header("Doodz Company Structure")
+    st.subheader("Where Innovation Meets Execution :rocket:")
+
+    # Removed the duplicate Organizational Philosophy at the top.
+    # We'll only keep it near the end as requested.
+
+    st.markdown("""
+    Below is our evolving company structure, represented as a **futuristic, interactive sunburst diagram**. Hover over each section to learn more, and imagine how each role fits into a larger, dynamic ecosystem:
+    
+    *Your cursor and imagination are your navigation tools. Dive in and explore!* :crystal_ball:
+    """)
+
+    # Define hierarchical data for the sunburst chart
+    data = {
+        "names": [
+            "Doodz",
+            "CEO: Ahmad Alothman",
+            "CSO: Omar AlOthman",
+            "CMO: Hamad Al-Khudor",
+            "COO: Abdullah Abul",
+            "Team Member 1: [Role]",
+            "Team Member 2: [Role]",
+            "Team Member 3: [Role]",
+            "Team Member 4: [Role]",
+            "Team Member 5: [Role]",
+            "Team Member 6: [Role]",
+        ],
+        "parents": [
+            "",  # Doodz is the root
+            "Doodz",  # CEO reports to Doodz
+            "CEO: Ahmad Alothman",  # CSO reports to CEO
+            "CEO: Ahmad Alothman",  # CMO reports to CEO
+            "CEO: Ahmad Alothman",  # COO reports to CEO
+            "CSO: Omar AlOthman",  # Team Member 1 reports to CSO
+            "CSO: Omar AlOthman",  # Team Member 2 reports to CSO
+            "CMO: Hamad Al-Khudor",  # Team Member 3 reports to CMO
+            "CMO: Hamad Al-Khudor",  # Team Member 4 reports to CMO
+            "COO: Abdullah Abul",    # Team Member 5 reports to COO
+            "COO: Abdullah Abul",    # Team Member 6 reports to COO
+        ],
+        "roles": [
+            "Root of innovation and growth",
+            "Leads the company with vision and strategy :crown:",
+            "Drives scientific R&D and product excellence :microscope:",
+            "Forges brand presence and market strategies :loudspeaker:",
+            "Optimizes operations and ensures efficient production :gear:",
+            "Role description for Team Member 1",
+            "Role description for Team Member 2",
+            "Role description for Team Member 3",
+            "Role description for Team Member 4",
+            "Role description for Team Member 5",
+            "Role description for Team Member 6",
+        ],
     }
 
-    st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Go to", ["Overview"] + expected_sheets[1:] + ["Data Editor & Export"])
+    df = pd.DataFrame(data)
 
-    if page == "Overview":
-        st.header("Experiment Overview")
+    # Create a sunburst chart to visualize company structure
+    fig = px.sunburst(
+        df,
+        names="names",
+        parents="parents",
+        hover_data=["roles"],
+        title="Doodz Hierarchy Sunburst",
+        color="parents",  # Color by parent to maintain color consistency
+        color_discrete_sequence=px.colors.qualitative.Pastel,
+    )
+    fig.update_traces(
+        hovertemplate="<b>%{label}</b><br>%{customdata[0]}<extra></extra>",
+        marker=dict(line=dict(color='#000000', width=2))
+    )
+    fig.update_layout(margin = dict(t=50, l=25, r=25, b=25))
+    st.plotly_chart(fig, use_container_width=True)
 
-        # Display Instructions
-        st.subheader("Instructions")
-        if not instructions_df.empty:
-            for idx, row in instructions_df.iterrows():
-                st.write(row[0])
-        else:
-            st.write("No instructions found.")
+    # Additional details in expanders
+    st.markdown("### Detailed Roles and Responsibilities")
+    with st.expander("CEO: Ahmad Alothman :crown:"):
+        st.write("""
+        - Sets the overarching vision and strategic direction for the company.
+        - Oversees all operations, ensuring cohesion across departments.
+        - Makes high-level decisions and secures resources for long-term growth.
+        """)
 
-        st.subheader("Key Metrics")
-        # Feed Metrics (using our computed "Total Consumed (kg)")
-        if not feed_df.empty and "Total Consumed (kg)" in feed_df.columns:
-            total_feed_consumed = feed_df["Total Consumed (kg)"].sum(skipna=True)
-            st.metric("Total Feed Consumed (all groups)", f"{total_feed_consumed:.2f} kg")
-        else:
-            st.metric("Total Feed Consumed (all groups)", "No data available")
+    with st.expander("CSO: Omar AlOthman :microscope:"):
+        st.write("""
+        - Leads scientific R&D and ensures the integrity of feed formulations.
+        - Guides experimental design and data interpretation.
+        - Champions innovation, staying at the cutting edge of poultry nutrition science.
+        """)
 
-        # Weight Metrics
-        if not weight_df.empty and "Weight (g)" in weight_df.columns:
-            avg_final_weight = weight_df["Weight (g)"].mean(skipna=True)
-            if pd.notnull(avg_final_weight):
-                st.metric("Average Bird Weight (overall)", f"{avg_final_weight:.2f} g")
-            else:
-                st.metric("Average Bird Weight (overall)", "No data available")
-        else:
-            st.metric("Average Bird Weight (overall)", "No data available")
+    with st.expander("CMO: Hamad Al-Khudor :loudspeaker:"):
+        st.write("""
+        - Develops and executes branding and marketing strategies.
+        - Identifies emerging markets and cultivates customer relationships.
+        - Communicates product value propositions to stakeholders, ensuring brand recognition.
+        """)
 
-        # Health Metrics
-        if not health_df.empty and "Observation Type (Illness/Mortality/Behavior)" in health_df.columns:
-            mortalities = health_df[health_df["Observation Type (Illness/Mortality/Behavior)"] == "Mortality"]
-            st.metric("Total Mortalities Recorded", f"{len(mortalities)}")
-        else:
-            st.metric("Total Mortalities Recorded", "No data available")
+    with st.expander("COO: Abdullah Abul :gear:"):
+        st.write("""
+        - Oversees daily operations, ensuring products meet quality and efficiency benchmarks.
+        - Coordinates logistics, inventory management, and supply chain optimization.
+        - Maintains seamless inter-departmental communication.
+        """)
 
-        # Cost Metrics
-        if not cost_df.empty and "Computed Total Cost (KWD)" in cost_df.columns:
-            total_cost = cost_df["Computed Total Cost (KWD)"].sum(skipna=True)
-            if pd.notnull(total_cost):
-                st.metric("Total Cost Recorded", f"{total_cost:.2f} KWD")
-            else:
-                st.metric("Total Cost Recorded", "No data available")
-        else:
-            st.metric("Total Cost Recorded", "No data available")
+    # Placeholder for future team members
+    team_members = df[df["names"].str.contains("Team Member")]
 
-    elif page == "Feed Consumption":
-        st.header("Feed Consumption")
-        if feed_df.empty:
-            st.write("No feed data available.")
-        else:
-            date_col = "Date (YYYY-MM-DD)"
-            if date_col in feed_df.columns:
-                feed_df["Date"] = pd.to_datetime(feed_df[date_col], errors='coerce')
-            else:
-                feed_df["Date"] = pd.NaT
+    for _, row in team_members.iterrows():
+        with st.expander(f"{row['names']}"):
+            st.write(row["roles"])
 
-            group_col = "Group (Control/25% BSFL/35% BSFL)"
-            if group_col in feed_df.columns:
-                groups = feed_df[group_col].dropna().unique()
-                selected_group = st.selectbox("Select Group:", options=groups) if len(groups) > 0 else None
+    # Organizational Philosophy at the near end
+    st.markdown("### Organizational Philosophy")
+    st.write("""
+    *Our structure is designed not only to define roles but to catalyze cross-pollination of ideas. Each leader, represented here, is a node in a network—empowering teams, driving innovation, and collectively forging the future of sustainable poultry feed solutions.*
+    """)
 
-                if selected_group:
-                    group_data = feed_df[feed_df[group_col] == selected_group].copy()
-                else:
-                    group_data = feed_df.copy()
-
-                st.subheader("Raw Data")
-                st.dataframe(group_data.drop(columns=["Date (YYYY-MM-DD)"] if "Date (YYYY-MM-DD)" in group_data.columns else []), height=300)
-
-                # Use our computed "Total Consumed (kg)" column for charts
-                if "Total Consumed (kg)" in group_data.columns and "Date" in group_data.columns:
-                    chart_data = group_data.dropna(subset=["Date", "Total Consumed (kg)"])
-                    if not chart_data.empty:
-                        fig = px.line(chart_data, x="Date", y="Total Consumed (kg)", 
-                                      title=f"Feed Consumed Over Time - {selected_group}", markers=True)
-                        st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.write("Could not find the Group column in feed data.")
-
-    elif page == "Weight Measurements":
-        st.header("Weight Measurements")
-        if weight_df.empty:
-            st.write("No weight data available.")
-        else:
-            date_col = "Date (YYYY-MM-DD)"
-            if date_col in weight_df.columns:
-                weight_df["Date"] = pd.to_datetime(weight_df[date_col], errors='coerce')
-            else:
-                weight_df["Date"] = pd.NaT
-
-            st.subheader("Raw Data")
-            st.dataframe(weight_df.drop(columns=["Date (YYYY-MM-DD)"] if "Date (YYYY-MM-DD)" in weight_df.columns else []), height=300)
-
-            if "Group" in weight_df.columns and "Weight (g)" in weight_df.columns:
-                groups = weight_df["Group"].dropna().unique()
-                selected_group = st.selectbox("Select Group for Weight Analysis:", options=groups)
-
-                group_data = weight_df[weight_df["Group"] == selected_group].copy()
-
-                st.subheader("Weight Distribution (by Bird)")
-                if not group_data.empty:
-                    fig = px.box(group_data, x="Group", y="Weight (g)", points="all", 
-                                 title=f"Weight Distribution - {selected_group}")
-                    st.plotly_chart(fig, use_container_width=True)
-
-                    st.subheader("Average Weight Over Time")
-                    avg_over_time = group_data.groupby("Date")["Weight (g)"].mean().reset_index()
-                    fig = px.line(avg_over_time, x="Date", y="Weight (g)", 
-                                  title=f"Average Weight Over Time - {selected_group}", markers=True)
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.write("Necessary columns missing in weight data.")
-
-    elif page == "Health Observations":
-        st.header("Health Observations")
-        if health_df.empty:
-            st.write("No health data available.")
-        else:
-            date_col = "Date (YYYY-MM-DD)"
-            if date_col in health_df.columns:
-                health_df["Date"] = pd.to_datetime(health_df[date_col], errors='coerce')
-            else:
-                health_df["Date"] = pd.NaT
-
-            st.subheader("Raw Data")
-            st.dataframe(health_df.drop(columns=["Date (YYYY-MM-DD)"] if "Date (YYYY-MM-DD)" in health_df.columns else []), height=300)
-
-            obs_type_col = "Observation Type (Illness/Mortality/Behavior)"
-            if obs_type_col in health_df.columns:
-                event_counts = health_df[obs_type_col].value_counts().reset_index()
-                event_counts.columns = ["Type", "Count"]
-                fig = px.bar(event_counts, x="Type", y="Count", title="Health Events by Type")
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.write("Observation Type column missing in health data.")
-
-    elif page == "Cost and Inventory":
-        st.header("Cost and Inventory")
-        if cost_df.empty:
-            st.write("No cost data available.")
-        else:
-            st.subheader("Raw Data")
-            st.dataframe(cost_df.drop(columns=["Computed Total Cost (KWD)"] if "Computed Total Cost (KWD)" in cost_df.columns else []), height=300)
-
-            if "Type (Soy/BSFL/Other)" in cost_df.columns and "Computed Total Cost (KWD)" in cost_df.columns:
-                cost_by_type = cost_df.groupby("Type (Soy/BSFL/Other)")["Computed Total Cost (KWD)"].sum().reset_index()
-                fig = px.pie(cost_by_type, names="Type (Soy/BSFL/Other)", values="Computed Total Cost (KWD)",
-                             title="Cost Distribution by Ingredient Type")
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.write("Necessary columns missing in cost data.")
-
-    elif page == "Protocol and Adjustments":
-        st.header("Protocol and Adjustments")
-        if protocol_df.empty:
-            st.write("No protocol data available.")
-        else:
-            st.subheader("Raw Data")
-            st.dataframe(protocol_df, height=300)
-
-            if "Approval Status" in protocol_df.columns:
-                status_counts = protocol_df["Approval Status"].value_counts().reset_index()
-                status_counts.columns = ["Status", "Count"]
-                fig = px.bar(status_counts, x="Status", y="Count", title="Proposed Changes Approval Status")
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.write("Approval Status column missing in protocol data.")
-
-    elif page == "Data Editor & Export":
-        st.header("Data Editor & Export")
-        st.write("Select a sheet to edit. After editing, you can export the updated workbook.")
-
-        editable_sheet = st.selectbox("Select a Sheet to Edit:", options=expected_sheets)
-        if editable_sheet not in data_sheets or data_sheets[editable_sheet].empty:
-            st.write("No data available for this sheet.")
-        else:
-            # Create a copy to edit
-            edited_df = st.data_editor(data_sheets[editable_sheet].copy(), key=f"editor_{editable_sheet}", num_rows="dynamic")
-
-            st.write("Modify the data above as needed. Then click 'Save Changes to Memory' to update the in-memory data.")
-            if st.button("Save Changes to Memory"):
-                data_sheets[editable_sheet] = edited_df
-                st.success("Changes saved to memory. You can now export the entire workbook.")
-
-            if st.button("Export Updated Workbook"):
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    # Save Instructions as is (without headers)
-                    if not instructions_df.empty:
-                        instructions_df.to_excel(writer, sheet_name="Instructions", index=False, header=False)
-                    # Save other sheets with computed columns
-                    for sname, df in data_sheets.items():
-                        if sname == "Instructions":
-                            continue
-                        if not df.empty:
-                            # Reinsert a placeholder instructions row
-                            headers = df.columns.tolist()
-                            instruction_row = ["(Instructions row omitted)"] + [""]*(len(headers)-1)
-                            combined_df = pd.concat([pd.DataFrame([instruction_row], columns=headers), df], ignore_index=True)
-                            combined_df.to_excel(writer, sheet_name=sname, index=False)
-                        else:
-                            pd.DataFrame().to_excel(writer, sheet_name=sname)
-                # Provide download
-                st.download_button(
-                    label="Download Updated Excel",
-                    data=output.getvalue(),
-                    file_name=f"Updated_BSFL_Experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-                st.success("Your updated workbook is ready for download!")
-else:
-    st.write("Please upload a file to begin.")
+# No file upload prompt since we are preloading the data
