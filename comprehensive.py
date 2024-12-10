@@ -50,12 +50,11 @@ for week in range(num_weeks):
     current_date = (start_date + timedelta(weeks=week)).strftime("%Y-%m-%d")
     for group, composition in groups.items():
         # Assume each group is allocated 3 kg per cycle, distributed weekly
-        # Total feed per week per group = 3 kg / num_weeks
         weekly_feed_total = 3 / num_weeks  # kg per group per week
         feed_offered = weekly_feed_total * 1000  # grams
         # Assume feed refusal rate increases with BSF inclusion
-        refusal_rate = 30 + (composition["BSF"] * 1.5)  # Base 30g + 1.5g per % BSF
-        feed_refused = refusal_rate + np.random.normal(0, 5)  # Add some variability
+        refusal_rate = 30 + (composition["BSF"] * 1.5)
+        feed_refused = refusal_rate + np.random.normal(0, 5)
         feed_refused = max(0, feed_refused)  # Ensure non-negative
         notes = ""
         if composition["BSF"] > 15:
@@ -77,35 +76,59 @@ for week in range(num_weeks):
 
 feed_df = pd.DataFrame(feed_consumption)
 
-# Create Feed Consumption Sheet
 feed_sheet = wb.create_sheet("Feed Consumption")
 for r in dataframe_to_rows(feed_df, index=False, header=True):
     feed_sheet.append(r)
 auto_adjust_column_widths(feed_sheet)
 
-# 2. Weight Measurements Sheet
-weight_measurements = []
-# Initial weights (g) - assume Control starts at 800g, others similar
-initial_weights = {group: 800 + np.random.normal(0, 20) for group in groups.keys()}
+# 2. Feed Composition Breakdown Sheet
+# Here we break down the consumed feed into BSF, Soy, and Carbs per group and date
+# Consumed = Offered - Refused
+feed_breakdown = []
+for _, row in feed_df.iterrows():
+    consumed = row["Feed Offered (g)"] - row["Feed Refused (g)"]
+    group_name = row["Group"]
+    composition = groups[group_name]
+    # Calculate grams of each ingredient consumed based on composition percentages
+    total_protein = composition["BSF"] + composition["Soy"]  # total protein portion = 33
+    # total_protein is always 33, but let's keep it generic in case of future changes
+    total_percentage = composition["BSF"] + composition["Soy"] + composition["Carbs"]  # should be 100
+    # Determine grams of each ingredient
+    # Note: composition values are percentages
+    bsf_g = (composition["BSF"] / 100.0) * consumed
+    soy_g = (composition["Soy"] / 100.0) * consumed
+    carbs_g = (composition["Carbs"] / 100.0) * consumed
 
-# Store current weights for each bird
+    feed_breakdown.append({
+        "Date": row["Date"],
+        "Group": group_name,
+        "BSF Consumed (g)": round(bsf_g, 2),
+        "Soy Consumed (g)": round(soy_g, 2),
+        "Carbs Consumed (g)": round(carbs_g, 2)
+    })
+
+breakdown_df = pd.DataFrame(feed_breakdown)
+composition_sheet = wb.create_sheet("Feed Composition Breakdown")
+for r in dataframe_to_rows(breakdown_df, index=False, header=True):
+    composition_sheet.append(r)
+auto_adjust_column_widths(composition_sheet)
+
+# 3. Weight Measurements Sheet
+weight_measurements = []
+initial_weights = {group: 800 + np.random.normal(0, 20) for group in groups.keys()}
 current_weights = {group: {bird: initial_weights[group] for bird in bird_ids[group]} for group in groups.keys()}
 
 for week in range(num_weeks):
     current_date = (start_date + timedelta(weeks=week)).strftime("%Y-%m-%d")
     for group, birds in bird_ids.items():
         for bird in birds:
-            # Assume weight gain depends on BSF inclusion
-            # Higher BSF may lead to better or slightly less weight gain
-            base_gain = 50  # grams per week
-            bsfl_factor = (groups[group]["BSF"] / 10)  # e.g., 10% BSF -> 1
-            weight_gain = base_gain + (bsfl_factor * 10)  # Increase gain with BSF
-            weight_gain += np.random.normal(0, 5)  # Add variability
-            weight_gain = max(0, weight_gain)  # Ensure non-negative
+            base_gain = 50
+            bsfl_factor = (groups[group]["BSF"] / 10)
+            weight_gain = base_gain + (bsfl_factor * 10) + np.random.normal(0, 5)
+            weight_gain = max(0, weight_gain)
             new_weight = current_weights[group][bird] + weight_gain
             current_weights[group][bird] = new_weight
             notes = ""
-            # Randomly add notes based on group
             if groups[group]["BSF"] > 15:
                 if np.random.rand() < 0.1:
                     notes = "Feather ruffling observed"
@@ -124,20 +147,17 @@ for week in range(num_weeks):
             })
 
 weight_df = pd.DataFrame(weight_measurements)
-
-# Create Weight Measurements Sheet
 weight_sheet = wb.create_sheet("Weight Measurements")
 for r in dataframe_to_rows(weight_df, index=False, header=True):
     weight_sheet.append(r)
 auto_adjust_column_widths(weight_sheet)
 
-# 3. Health Observations Sheet
+# 4. Health Observations Sheet
 health_observations = []
 for week in range(num_weeks):
     current_date = (start_date + timedelta(weeks=week)).strftime("%Y-%m-%d")
     for group, birds in bird_ids.items():
         for bird in birds:
-            # Assume low probability of health issues
             if np.random.rand() < 0.05:
                 observation_type = np.random.choice(["Illness", "Mortality", "Behavior"])
                 if observation_type == "Illness":
@@ -148,7 +168,7 @@ for week in range(num_weeks):
                     description = "Unexpected death"
                     action_taken = "Investigated potential causes"
                     outcome = "Unknown"
-                elif observation_type == "Behavior":
+                else:
                     description = "Increased pecking at feathers"
                     action_taken = "Separated affected bird temporarily"
                     outcome = "Behavior normalized"
@@ -163,20 +183,17 @@ for week in range(num_weeks):
                 })
 
 health_df = pd.DataFrame(health_observations)
-
-# Create Health Observations Sheet
 health_sheet = wb.create_sheet("Health Observations")
 for r in dataframe_to_rows(health_df, index=False, header=True):
     health_sheet.append(r)
 auto_adjust_column_widths(health_sheet)
 
-# 4. Cost and Inventory Sheet
+# 5. Cost and Inventory Sheet
 cost_inventory = []
-# Initial purchases
 cost_inventory.append({
     "Item/Ingredient": "BSF Powder",
     "Type": "BSFL",
-    "Unit Cost (KWD/ton)": 120,  # Example cost
+    "Unit Cost (KWD/ton)": 120,
     "Quantity (kg)": 200,
     "Date of Purchase": "2024-01-01",
     "Supplier": "InsectFarm Co.",
@@ -185,7 +202,7 @@ cost_inventory.append({
 cost_inventory.append({
     "Item/Ingredient": "Soy Meal",
     "Type": "Soy",
-    "Unit Cost (KWD/ton)": 230,  # Example cost
+    "Unit Cost (KWD/ton)": 230,
     "Quantity (kg)": 300,
     "Date of Purchase": "2024-01-01",
     "Supplier": "AgroSupplies",
@@ -194,18 +211,16 @@ cost_inventory.append({
 cost_inventory.append({
     "Item/Ingredient": "Corn Mix",
     "Type": "Carbs",
-    "Unit Cost (KWD/ton)": 150,  # Example cost
+    "Unit Cost (KWD/ton)": 150,
     "Quantity (kg)": 500,
     "Date of Purchase": "2024-01-01",
     "Supplier": "GrainCorp",
     "Notes": "Bulk purchase"
 })
 
-# Assume some weekly purchases
 for week in range(num_weeks):
     purchase_date = (start_date + timedelta(weeks=week)).strftime("%Y-%m-%d")
-    # BSF Powder restock if below threshold
-    if week % 3 == 0 and week != 0:  # Every 3 weeks
+    if week % 3 == 0 and week != 0:
         cost_inventory.append({
             "Item/Ingredient": "BSF Powder",
             "Type": "BSFL",
@@ -215,7 +230,6 @@ for week in range(num_weeks):
             "Supplier": "InsectFarm Co.",
             "Notes": "Restock for high BSF groups"
         })
-    # Soy Meal restock
     if week % 2 == 0:
         cost_inventory.append({
             "Item/Ingredient": "Soy Meal",
@@ -226,7 +240,6 @@ for week in range(num_weeks):
             "Supplier": "AgroSupplies",
             "Notes": "Restock for all groups"
         })
-    # Corn Mix restock
     if week % 1 == 0:
         cost_inventory.append({
             "Item/Ingredient": "Corn Mix",
@@ -239,14 +252,12 @@ for week in range(num_weeks):
         })
 
 cost_df = pd.DataFrame(cost_inventory)
-
-# Create Cost and Inventory Sheet
 cost_sheet = wb.create_sheet("Cost and Inventory")
 for r in dataframe_to_rows(cost_df, index=False, header=True):
     cost_sheet.append(r)
 auto_adjust_column_widths(cost_sheet)
 
-# 5. Protocol and Adjustments Sheet
+# 6. Protocol and Adjustments Sheet
 protocol_adjustments = [
     {
         "Parameter": "Experiment Duration",
@@ -279,13 +290,11 @@ protocol_adjustments = [
 ]
 
 protocol_df = pd.DataFrame(protocol_adjustments)
-
-# Create Protocol and Adjustments Sheet
 protocol_sheet = wb.create_sheet("Protocol and Adjustments")
 for r in dataframe_to_rows(protocol_df, index=False, header=True):
     protocol_sheet.append(r)
 auto_adjust_column_widths(protocol_sheet)
 
 # Save the Workbook
-wb.save("BSFL_Experiment_Full_Dummy_Data.xlsx")
-print("Excel workbook 'BSFL_Experiment_Full_Dummy_Data.xlsx' created successfully.")
+wb.save("BSFL_Expdiidididieriment_Full_Dummy_Data.xlsx")
+print("Excel workbook 'BSFL_Experddddiment_Full_Dummy_Data.xlsx' created successfully.")
