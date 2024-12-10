@@ -59,32 +59,32 @@ if export_button:
 
 # Navigation
 if page == "Overview":
-    from pages.overview import show_overview
+    from custom_pages.overview import show_overview
     show_overview(feed_df, weight_df, health_df)
 
 elif page == "Feed Consumption":
-    from pages.feed_consumption import show_feed_consumption
+    from custom_pages.feed_consumption import show_feed_consumption
     show_feed_consumption(feed_df)
 
 elif page == "Weight Measurements":
-    from pages.weight_measurements import show_weight_measurements
+    from custom_pages.weight_measurements import show_weight_measurements
     show_weight_measurements(weight_df)
 
 elif page == "Health Observations":
-    from pages.health_observations import show_health_observations
+    from custom_pages.health_observations import show_health_observations
     show_health_observations(health_df)
 
 elif page == "Cost and Inventory":
-    from pages.cost_inventory import show_cost_inventory
+    from custom_pages.cost_inventory import show_cost_inventory
     # Pass both cost_df and breakdown_df
     show_cost_inventory(cost_df, breakdown_df)
 
 elif page == "Protocol & Adjustments":
-    from pages.protocol_adjustments import show_protocol_adjustments
+    from custom_pages.protocol_adjustments import show_protocol_adjustments
     show_protocol_adjustments(protocol_df)
 
 elif page == "Company Structure":
-    from pages.company_structure import show_company_structure
+    from custom_pages.company_structure import show_company_structure
     show_company_structure()
 
 else:
